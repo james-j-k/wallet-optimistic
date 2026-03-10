@@ -1,265 +1,264 @@
-💳 Wallet Service — Production-Ready Backend (FastAPI + PostgreSQL)
+# Wallet Service – Optimistic Concurrency Control
 
-A production-grade wallet and ledger service built using FastAPI and PostgreSQL, implementing:
+## Overview
 
-Atomic transaction safety
+This project implements a **secure wallet API** using **FastAPI, PostgreSQL, and SQLAlchemy**, focusing on maintaining **data integrity during concurrent transactions**.
 
-Concurrency correctness
+The system demonstrates **Optimistic Concurrency Control**, ensuring that simultaneous wallet operations do not lead to data corruption such as the **Lost Update Anomaly**.
 
-JWT authentication
+The implementation is based on the concepts described in the article:
 
-Strict authorization
+**“Balancing Concurrency: Exploring Optimistic vs. Pessimistic Concurrency Control in Application Development” – Samarendra Kandala**
 
-Ledger-based accounting
+---
 
-Structured logging
+# Problem: Concurrent Wallet Transactions
 
-This project was implemented in 3 phases focusing on correctness, security, and production best practices.
+In financial systems such as digital wallets, multiple requests may attempt to update the same wallet balance simultaneously.
 
-🚀 Features
-✅ Phase 1 — Core Wallet & Ledger
+Example:
 
-Create user
+Initial balance
 
-Create wallet (1 wallet per user)
+```
+100
+```
 
-Credit wallet
+Two concurrent requests
 
-Debit wallet
+```
+Request A → Debit 70
+Request B → Debit 50
+```
 
-Get wallet balance
+Without proper concurrency control, both requests may read the same balance and update it independently, resulting in an incorrect final balance.
 
-Get transaction ledger
+This issue is known as the **Lost Update Anomaly**.
 
-PostgreSQL persistence
+---
 
-Ledger entry created for every credit/debit
+# Solution: Optimistic Concurrency Control
 
-Balance never allowed to go negative
+This project uses **optimistic concurrency control through atomic conditional database updates**.
 
-Strict input validation (decimal precision, max digits, positive values)
+Instead of locking rows in the database, the system performs updates in a **single atomic SQL statement**.
 
-⚡ Phase 2 — Concurrency & Consistency
+Example query:
 
-Atomic conditional debit using SQL
+```
+UPDATE wallets
+SET balance = balance - amount
+WHERE id = wallet_id
+AND balance >= amount
+```
 
-Wrapped inside database transaction block
+### Key Characteristics
 
-Safe under 50+ concurrent requests
+- No database row locks
+- Multiple transactions can run concurrently
+- Conflicts are detected during the update operation
+- Failed updates are handled safely
 
-Prevents race conditions
+If the condition fails, the transaction is rejected.
 
-Prevents double spending
+---
 
-Ledger entries match successful debits only
+# How the System Prevents Race Conditions
 
-Works correctly even under multi-worker deployment
+When multiple requests attempt to modify the same wallet:
 
-🔐 Phase 3 — JWT Authentication & Authorization
+1. Each request attempts an atomic update.
+2. The database processes updates sequentially internally.
+3. If the update condition fails, the transaction affects zero rows.
+4. The application detects the failure and rejects the request.
 
-JSON-based login endpoint
+This prevents:
 
-JWT token issuance with expiration
+- Lost updates
+- Double spending
+- Negative balances
 
-Secure password hashing using bcrypt
+---
 
-All wallet endpoints protected
+# Technology Stack
 
-Authorization enforcement:
+- **FastAPI** – Web framework
+- **PostgreSQL** – Database
+- **SQLAlchemy ORM** – Database interaction
+- **JWT Authentication** – Secure API access
+- **Uvicorn** – ASGI server
 
-A user can only access their own wallet
+---
 
-No wallet_id exposure in public API
+# Project Structure
 
-Cross-user access structurally impossible
+```
+app/
+ ├── main.py           # FastAPI application and routes
+ ├── crud.py           # Wallet transaction logic
+ ├── models.py         # Database models
+ ├── schemas.py        # Pydantic schemas
+ ├── database.py       # Database configuration
+ ├── auth.py           # Authentication logic
+ ├── config.py         # Environment configuration
+ ├── dependencies.py   # Dependency injection
+ └── logger.py         # Logging configuration
 
-Structured logging for security events
+tests/
+ ├── concurrency_test.py
+ └── concurrency_credit.py
+```
 
-🏗 Architecture
-FastAPI
-│
-├── app/
-│   ├── main.py          → API routes
-│   ├── models.py        → SQLAlchemy models
-│   ├── schemas.py       → Pydantic schemas
-│   ├── crud.py          → Business logic
-│   ├── auth.py          → JWT & password handling
-│   ├── database.py      → DB session & engine
-│   ├── config.py        → Environment configuration
-│   ├── dependencies.py  → DB dependency
-│   └── logger.py        → Structured logging
-│
-├── tests/
-│   └── concurrency_test.py
-│
-├── requirements.txt
-└── README.md
-🛠 Tech Stack
+---
 
-FastAPI
+# API Endpoints
 
-PostgreSQL
+## Register User
 
-SQLAlchemy
-
-Pydantic
-
-bcrypt (passlib)
-
-python-jose (JWT)
-
-Uvicorn
-
-⚙️ Setup Instructions
-1️⃣ Clone Repository
-git clone https://github.com/your-username/wallet-service.git
-cd wallet-service
-2️⃣ Create Virtual Environment
-python -m venv venv
-source venv/bin/activate   # Mac/Linux
-venv\Scripts\activate      # Windows
-3️⃣ Install Dependencies
-pip install -r requirements.txt
-4️⃣ Configure Environment Variables
-
-Create .env file:
-
-DATABASE_URL=postgresql://postgres:password@localhost:5432/walletdb
-SECRET_KEY=your-secret-key
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-5️⃣ Run Server
-uvicorn app.main:app --reload
-
-Open:
-
-http://127.0.0.1:8000/docs
-🔐 Authentication Flow
-1. Register
+```
 POST /users
-2. Login
+```
+
+Creates a new user.
+
+---
+
+## Login
+
+```
 POST /login
-{
-  "email": "...",
-  "password": "..."
-}
+```
 
-Returns:
+Returns a JWT access token.
 
-{
-  "access_token": "...",
-  "token_type": "bearer"
-}
-3. Authorize in Swagger
+---
 
-Click Authorize → paste:
+## Create Wallet
 
-Bearer <access_token>
-💳 Wallet API
+```
+POST /wallet
+```
 
-All endpoints require authentication.
+Creates a wallet for the authenticated user.
 
-POST   /wallet
-POST   /wallet/credit
-POST   /wallet/debit
-GET    /wallet/balance
-GET    /wallet/ledger
+---
 
-Note:
+## Credit Wallet
 
-No wallet_id required
+```
+POST /wallet/credit
+```
 
-Wallet derived from authenticated user
+Adds funds to the wallet.
 
-Ownership enforced automatically
+Concurrency-safe through atomic update.
 
-🧪 Concurrency Testing
+---
 
-Tested using 50 concurrent debit requests:
+## Debit Wallet
 
-Scenario:
+```
+POST /wallet/debit
+```
 
-Initial balance: 100
+Deducts funds from the wallet.
 
-50 concurrent debits of 10
+Prevents insufficient balance using conditional updates.
 
-Result:
+---
 
+## Get Wallet Balance
+
+```
+GET /wallet/balance
+```
+
+Returns the current wallet balance.
+
+---
+
+## Get Wallet Ledger
+
+```
+GET /wallet/ledger
+```
+
+Returns transaction history for the wallet.
+
+---
+
+# Running the Project
+
+## Install Dependencies
+
+```
+pip install -r requirements.txt
+```
+
+## Run the Server
+
+```
+uvicorn app.main:app --reload
+```
+
+Server runs at:
+
+```
+http://127.0.0.1:8000
+```
+
+---
+
+# Concurrency Testing
+
+The system includes scripts to simulate concurrent wallet operations.
+
+### Debit Concurrency Test
+
+```
+python tests/concurrency_test.py
+```
+
+Example result:
+
+```
 Success: 10
 Failed: 40
-Final Balance: 0
-Ledger Entries: 10 debits
+```
 
-Proves:
+This confirms that only valid transactions succeed.
 
-Atomic update correctness
+---
 
-No race conditions
+### Credit Concurrency Test
 
-No negative balance
+```
+python tests/concurrency_credit.py
+```
 
-No duplicate ledger entries
+Example result:
 
-🔒 Security Design Decisions
+```
+Success: 50
+Failed: 0
+```
 
-Passwords hashed with bcrypt
+---
 
-JWT expiration enforced
+# Advantages of Optimistic Concurrency
 
-Secret stored in environment variables
+Optimistic concurrency provides:
 
-No sensitive logging
+- High throughput under heavy load
+- No blocking locks
+- Better scalability
+- Safe handling of concurrent updates
 
-Structured logging for security events
+This approach is widely used in **modern financial and distributed systems**.
 
-Authorization enforced at route level
+---
 
-No wallet_id exposure
+# Reference
 
-Atomic conditional SQL updates
-
-🧠 Design Principles Used
-
-Single responsibility separation
-
-Clean dependency injection
-
-Database-level integrity enforcement
-
-Idempotent-safe debit logic
-
-Transactional consistency
-
-Minimal attack surface API design
-
-📈 Future Improvements (Beyond Scope)
-
-Refresh tokens
-
-Rate limiting
-
-Token revocation
-
-Role-based access control
-
-Structured JSON logging
-
-Request tracing / correlation IDs
-
-Dockerization
-
-🎯 Summary
-
-This project demonstrates:
-
-Strong understanding of backend fundamentals
-
-Database-level concurrency control
-
-Secure authentication implementation
-
-Proper authorization enforcement
-
-Clean API design
-
-Production-ready coding standards
+Samarendra Kandala  
+**Balancing Concurrency: Exploring Optimistic vs. Pessimistic Concurrency Control in Application Development**
