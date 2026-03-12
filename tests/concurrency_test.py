@@ -1,7 +1,7 @@
 import requests
 import concurrent.futures
 
-TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlYWVjNTU2Yy1lOTk3LTQyNDItOTU5Ni02YjI1OGQyNmI2MzUiLCJleHAiOjE3NzMzMDI3Mjd9.TFpeemqkHNdAliwLA1XaSSwqgJq4wA7-mLBDwRRGtRk"
+TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlYWVjNTU2Yy1lOTk3LTQyNDItOTU5Ni02YjI1OGQyNmI2MzUiLCJleHAiOjE3NzMzMDQ4MTZ9.aaVlEKz8o82NiuY30Ewmzi1WklLKVmn4bjh_vhzC2Cw"
 
 URL = "http://127.0.0.1:8000/wallet/debit"
 

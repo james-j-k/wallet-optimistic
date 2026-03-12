@@ -44,63 +44,61 @@ def create_wallet(db: Session, user_id):
 def credit_wallet(db: Session, wallet_id, amount):
 
     while True:
-        try:
 
-            wallet = (
-                db.query(models.Wallet)
-                .filter(models.Wallet.id == wallet_id)
+        wallet = (
+            db.query(models.Wallet)
+            .filter(models.Wallet.id == wallet_id)
+            .first()
+        )
+
+        if wallet is None:
+            return None
+
+        stmt = (
+            update(models.Wallet)
+            .where(models.Wallet.id == wallet_id)
+            .where(models.Wallet.version == wallet.version)
+            .values(
+                balance=models.Wallet.balance + amount,
+                version=models.Wallet.version + 1
+            )
+        )
+
+        result = db.execute(stmt)
+
+        if result.rowcount == 1:
+
+            db.add(models.LedgerEntry(
+                wallet_id=wallet_id,
+                amount=amount,
+                type="CREDIT"
+            ))
+
+            db.commit()
+
+            updated = db.query(models.Wallet)\
+                .filter(models.Wallet.id == wallet_id)\
                 .first()
-            )
 
-            if wallet is None:
-                return None
+            logger.info(f"Optimistic credit success wallet={wallet_id}")
 
-            stmt = (
-                update(models.Wallet)
-                .where(models.Wallet.id == wallet_id)
-                .where(models.Wallet.version == wallet.version)
-                .values(
-                    balance=models.Wallet.balance + amount,
-                    version=models.Wallet.version + 1
-                )
-            )
+            return updated
 
-            result = db.execute(stmt)
-
-            if result.rowcount == 1:
-
-                entry = models.LedgerEntry(
-                    wallet_id=wallet_id,
-                    amount=amount,
-                    type="CREDIT"
-                )
-
-                db.add(entry)
-                db.commit()
-
-                return (
-                    db.query(models.Wallet)
-                    .filter(models.Wallet.id == wallet_id)
-                    .first()
-                )
-
-            else:
-                db.rollback()
-                logger.warning("Optimistic credit conflict → retry")
-
-        except SQLAlchemyError as e:
-            db.rollback()
-            logger.error(str(e))
-            raise
+        # conflict → retry forever
+        db.rollback()
+        db.expire_all()
 
 
-def debit_wallet(db, wallet_id, amount):
+def debit_wallet(db: Session, wallet_id, amount):
 
-    for _ in range(10):
+    while True:
 
         wallet = db.query(models.Wallet)\
             .filter(models.Wallet.id == wallet_id)\
             .first()
+
+        if wallet is None:
+            return None
 
         if wallet.balance < amount:
             return None
@@ -126,9 +124,14 @@ def debit_wallet(db, wallet_id, amount):
             ))
 
             db.commit()
-            return wallet
+
+            updated = db.query(models.Wallet)\
+                .filter(models.Wallet.id == wallet_id)\
+                .first()
+
+            logger.info(f"Optimistic debit success wallet={wallet_id}")
+
+            return updated
 
         db.rollback()
-        db.expire_all()   # ⭐ VERY IMPORTANT
-
-    return None
+        db.expire_all()
