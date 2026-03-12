@@ -42,101 +42,93 @@ def create_wallet(db: Session, user_id):
 
 
 def credit_wallet(db: Session, wallet_id, amount):
-    try:
 
-        wallet = (
-            db.query(models.Wallet)
-            .filter(models.Wallet.id == wallet_id)
-            .first()
-        )
+    while True:
+        try:
 
-        if wallet is None:
-            return None
-
-        # Optimistic atomic update
-        stmt = (
-            update(models.Wallet)
-            .where(models.Wallet.id == wallet_id)
-            .values(balance=models.Wallet.balance + amount)
-        )
-
-        result = db.execute(stmt)
-
-        if result.rowcount == 0:
-            db.rollback()
-            return None
-
-        entry = models.LedgerEntry(
-            wallet_id=wallet_id,
-            amount=amount,
-            type="CREDIT"
-        )
-
-        db.add(entry)
-
-        db.commit()
-
-        updated_wallet = (
-            db.query(models.Wallet)
-            .filter(models.Wallet.id == wallet_id)
-            .first()
-        )
-
-        logger.info(
-            f"Optimistic credit successful: wallet={wallet_id}, amount={amount}"
-        )
-
-        return updated_wallet
-
-    except SQLAlchemyError as e:
-        db.rollback()
-        logger.error(f"Optimistic credit DB error: {str(e)}")
-        raise
-
-
-def debit_wallet(db: Session, wallet_id, amount):
-    try:
-
-        # Optimistic conditional update
-        stmt = (
-            update(models.Wallet)
-            .where(models.Wallet.id == wallet_id)
-            .where(models.Wallet.balance >= amount)
-            .values(balance=models.Wallet.balance - amount)
-        )
-
-        result = db.execute(stmt)
-
-        if result.rowcount == 0:
-            db.rollback()
-            logger.warning(
-                f"Optimistic debit failed (insufficient funds): wallet={wallet_id}, amount={amount}"
+            wallet = (
+                db.query(models.Wallet)
+                .filter(models.Wallet.id == wallet_id)
+                .first()
             )
+
+            if wallet is None:
+                return None
+
+            stmt = (
+                update(models.Wallet)
+                .where(models.Wallet.id == wallet_id)
+                .where(models.Wallet.version == wallet.version)
+                .values(
+                    balance=models.Wallet.balance + amount,
+                    version=models.Wallet.version + 1
+                )
+            )
+
+            result = db.execute(stmt)
+
+            if result.rowcount == 1:
+
+                entry = models.LedgerEntry(
+                    wallet_id=wallet_id,
+                    amount=amount,
+                    type="CREDIT"
+                )
+
+                db.add(entry)
+                db.commit()
+
+                return (
+                    db.query(models.Wallet)
+                    .filter(models.Wallet.id == wallet_id)
+                    .first()
+                )
+
+            else:
+                db.rollback()
+                logger.warning("Optimistic credit conflict → retry")
+
+        except SQLAlchemyError as e:
+            db.rollback()
+            logger.error(str(e))
+            raise
+
+
+def debit_wallet(db, wallet_id, amount):
+
+    for _ in range(10):
+
+        wallet = db.query(models.Wallet)\
+            .filter(models.Wallet.id == wallet_id)\
+            .first()
+
+        if wallet.balance < amount:
             return None
 
-        entry = models.LedgerEntry(
-            wallet_id=wallet_id,
-            amount=amount,
-            type="DEBIT"
+        stmt = (
+            update(models.Wallet)
+            .where(models.Wallet.id == wallet_id)
+            .where(models.Wallet.version == wallet.version)
+            .values(
+                balance=models.Wallet.balance - amount,
+                version=models.Wallet.version + 1
+            )
         )
 
-        db.add(entry)
+        result = db.execute(stmt)
 
-        db.commit()
+        if result.rowcount == 1:
 
-        updated_wallet = (
-            db.query(models.Wallet)
-            .filter(models.Wallet.id == wallet_id)
-            .first()
-        )
+            db.add(models.LedgerEntry(
+                wallet_id=wallet_id,
+                amount=amount,
+                type="DEBIT"
+            ))
 
-        logger.info(
-            f"Optimistic debit successful: wallet={wallet_id}, amount={amount}"
-        )
+            db.commit()
+            return wallet
 
-        return updated_wallet
-
-    except SQLAlchemyError as e:
         db.rollback()
-        logger.error(f"Optimistic debit DB error: {str(e)}")
-        raise
+        db.expire_all()   # ⭐ VERY IMPORTANT
+
+    return None
